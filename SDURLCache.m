@@ -20,7 +20,9 @@
 // populated.
 static NSString *const kSDURLCacheVersion = @"V2";
 
-static NSTimeInterval const kSDURLCacheInfoDefaultMinCacheInterval = 5 * 60; // 5 minute
+static NSTimeInterval const kSDURLCacheInfoDefaultMinDiskCacheItemInterval = 15 * 60; // 15 minutes
+static NSTimeInterval const kSDURLCacheInfoDefaultMaxMemoryCacheItemInterval = 36 * 60 * 60; // 36 hours
+static NSInteger const kSDURLCacheInfoDefaultMaxMemoryCacheItemSize = 16 * 1024; // 16 KiB
 static NSString *const kSDURLCacheInfoFileName = @"cacheInfo.plist";
 static NSString *const kSDURLCacheInfoDiskUsageKey = @"diskUsage";
 static NSString *const kSDURLCacheInfoAccessesKey = @"accesses";
@@ -32,12 +34,12 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
 {
     NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];
     NSLocale *locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US"];
-    
+
     [dateFormatter setLocale:locale];
     [dateFormatter setTimeZone:[NSTimeZone timeZoneWithAbbreviation:@"GMT"]];
     [dateFormatter setDateFormat:format];
     [locale release];
-    
+
     return [dateFormatter autorelease];
 }
 
@@ -51,7 +53,7 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
 
 @implementation SDURLCache
 
-@synthesize diskCachePath, minCacheInterval, ioQueue, periodicMaintenanceOperation, ignoreMemoryOnlyStoragePolicy;
+@synthesize diskCachePath, minDiskCacheItemInterval, maxMemoryCacheItemInterval, maxMemoryCacheItemSize, ioQueue, periodicMaintenanceOperation, ignoreMemoryOnlyStoragePolicy;
 @dynamic diskCacheInfo;
 
 #pragma mark SDURLCache (tools)
@@ -436,14 +438,15 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
 
     if ((self = [super initWithMemoryCapacity:memoryCapacity diskCapacity:diskCapacity diskPath:path]) && !disabled)
     {
-        self.minCacheInterval = kSDURLCacheInfoDefaultMinCacheInterval;
+        self.minDiskCacheItemInterval = kSDURLCacheInfoDefaultMinDiskCacheItemInterval;
+        self.maxMemoryCacheItemSize = kSDURLCacheInfoDefaultMaxMemoryCacheItemSize;
         self.diskCachePath = path;
 
         // Init the operation queue
         NSOperationQueue *queue = [[NSOperationQueue alloc] init];
         self.ioQueue = queue;
         [queue release];
-        
+
         ioQueue.maxConcurrentOperationCount = 1; // used to streamline operations in a separate thread
         self.ignoreMemoryOnlyStoragePolicy = YES;
 	}
@@ -451,11 +454,11 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
     return self;
 }
 
-- (id)initWithMemoryCapacity:(NSUInteger)memoryCapacity 
-                diskCapacity:(NSUInteger)diskCapacity 
+- (id)initWithMemoryCapacity:(NSUInteger)memoryCapacity
+                diskCapacity:(NSUInteger)diskCapacity
                     diskPath:(NSString *)path
           enableForIOS5AndUp:(BOOL)enableForIOS5AndUp {
-    
+
     _enableForIOS5AndUp = enableForIOS5AndUp;
     return [self initWithMemoryCapacity:memoryCapacity
                            diskCapacity:diskCapacity
@@ -483,26 +486,28 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
         return;
     }
 
-    [super storeCachedResponse:cachedResponse forRequest:request];
-
     NSURLCacheStoragePolicy storagePolicy = cachedResponse.storagePolicy;
-    if ((storagePolicy == NSURLCacheStorageAllowed || (storagePolicy == NSURLCacheStorageAllowedInMemoryOnly && ignoreMemoryOnlyStoragePolicy))
-        && [cachedResponse.response isKindOfClass:[NSHTTPURLResponse self]]
-        && cachedResponse.data.length < self.diskCapacity)
-    {
-        NSDictionary *headers = [(NSHTTPURLResponse *)cachedResponse.response allHeaderFields];
-        // RFC 2616 section 13.3.4 says clients MUST use Etag in any cache-conditional request if provided by server
-        if (![headers objectForKey:@"Etag"])
-        {
-            NSDate *expirationDate = [SDURLCache expirationDateFromHeaders:headers
-                                                            withStatusCode:((NSHTTPURLResponse *)cachedResponse.response).statusCode];
-            if (!expirationDate || [expirationDate timeIntervalSinceNow] - minCacheInterval <= 0)
-            {
-                // This response is not cacheable, headers said
-                return;
-            }
-        }
+    NSDictionary *headers = [(NSHTTPURLResponse *)cachedResponse.response allHeaderFields];
+    NSDate *expirationDate = [SDURLCache expirationDateFromHeaders:headers
+                                                    withStatusCode:((NSHTTPURLResponse *)cachedResponse.response).statusCode];
 
+    bool diskCacheable = ((storagePolicy == NSURLCacheStorageAllowed || (storagePolicy == NSURLCacheStorageAllowedInMemoryOnly && ignoreMemoryOnlyStoragePolicy))
+                          && [cachedResponse.response isKindOfClass:[NSHTTPURLResponse class]]
+                          && cachedResponse.data.length < self.diskCapacity
+                          && [expirationDate timeIntervalSinceNow] > minDiskCacheItemInterval);
+
+    bool memoryCacheable = cachedResponse.data.length < self.maxMemoryCacheItemSize;
+
+    if (memoryCacheable && (!diskCacheable || [expirationDate timeIntervalSinceNow] <= maxMemoryCacheItemInterval))
+    {
+        // item is small enough, cache to memory only
+        [super storeCachedResponse:cachedResponse forRequest:request];
+        return;
+    }
+
+
+    if (diskCacheable && ! [self isCachedOnDisk:[request URL]])
+    {
         NSInvocationOperation *operation = [[NSInvocationOperation alloc] initWithTarget:self
                                                                             selector:@selector(storeToDisk:)
                                                                               object:[NSDictionary dictionaryWithObjectsAndKeys:
@@ -595,12 +600,12 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
 - (void)removeAllCachedResponses
 {
     [super removeAllCachedResponses];
-    
+
     if (disabled) return;
     NSFileManager *fileManager = [[NSFileManager alloc] init];
     [fileManager removeItemAtPath:diskCachePath error:NULL];
     [fileManager release];
-    
+
     @synchronized(self)
     {
         [diskCacheInfo release], diskCacheInfo = nil;
@@ -619,36 +624,32 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
 
     if (disabled) return NO;
 
+    return [self isCachedOnDisk:url];
+}
+
+- (BOOL)isCachedOnDisk:(NSURL *)url
+{
     NSString *cacheKey = [SDURLCache cacheKeyForURL:url];
     NSString *cacheFile = [diskCachePath stringByAppendingPathComponent:cacheKey];
     NSFileManager *manager = [[NSFileManager alloc] init];
-    
     BOOL exists = [manager fileExistsAtPath:cacheFile];
     [manager release];
-    
-    if (exists)
-    {
-        return YES;
-    }
-    return NO;
+    return exists;
 }
 
 #pragma mark NSObject
 
 - (void)dealloc
 {
-    if (disabled)
+    if (!disabled)
     {
-        [super dealloc];
-        return;
+        [periodicMaintenanceTimer invalidate];
+        [periodicMaintenanceTimer release], periodicMaintenanceTimer = nil;
+        [periodicMaintenanceOperation release], periodicMaintenanceOperation = nil;
+        [diskCachePath release], diskCachePath = nil;
+        [diskCacheInfo release], diskCacheInfo = nil;
+        [ioQueue release], ioQueue = nil;
     }
-
-    [periodicMaintenanceTimer invalidate];
-    [periodicMaintenanceTimer release], periodicMaintenanceTimer = nil;
-    [periodicMaintenanceOperation release], periodicMaintenanceOperation = nil;
-    [diskCachePath release], diskCachePath = nil;
-    [diskCacheInfo release], diskCacheInfo = nil;
-    [ioQueue release], ioQueue = nil;
     [super dealloc];
 }
 

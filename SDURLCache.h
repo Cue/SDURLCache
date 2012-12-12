@@ -15,7 +15,9 @@
     NSMutableDictionary *diskCacheInfo;
     BOOL diskCacheInfoDirty, ignoreMemoryOnlyStoragePolicy, disabled, _enableForIOS5AndUp;
     NSUInteger diskCacheUsage;
-    NSTimeInterval minCacheInterval;
+    NSTimeInterval minDiskCacheItemInterval;
+    NSTimeInterval maxMemoryCacheItemInterval;
+    NSUInteger maxMemoryCacheItemSize;
     NSOperationQueue *ioQueue;
     NSTimer *periodicMaintenanceTimer;
     NSOperation *periodicMaintenanceOperation;
@@ -27,7 +29,18 @@
  * for an entry which will certainly expire before behing read back from disk cache (memory cache is
  * best suited for short term cache). The default value is set to 5 minutes (300 seconds).
  */
-@property (nonatomic, assign) NSTimeInterval minCacheInterval;
+@property (nonatomic, assign) NSTimeInterval minDiskCacheItemInterval;
+
+/*
+ * Defines the maximum number of seconds between now and the expiration time of a cacheable response
+ * in order for the response to be cached in memory. Responses that have a very long time to live will
+ * only be cached on disk.
+ */
+@property (nonatomic, assign) NSTimeInterval maxMemoryCacheItemInterval;
+
+/* Defines the maximum size of a cacheable response in order for the response to be cached in memory.
+ */
+@property (nonatomic, assign) NSUInteger maxMemoryCacheItemSize;
 
 /*
  * Allow the responses that have a storage policy of NSURLCacheStorageAllowedInMemoryOnly to be cached
