@@ -58,13 +58,13 @@
  */
 + (NSString *)defaultCachePath;
 
-/* 
+/*
  * yosit: It turns that although ios > 5 has a disk cache it doesn't behave in a predicatable way
  * the added enableForIOS5AndUp will enable SDURLCache to function like it does on all version of IOS
  */
 
-- (id)initWithMemoryCapacity:(NSUInteger)memoryCapacity 
-                diskCapacity:(NSUInteger)diskCapacity 
+- (id)initWithMemoryCapacity:(NSUInteger)memoryCapacity
+                diskCapacity:(NSUInteger)diskCapacity
                     diskPath:(NSString *)path
           enableForIOS5AndUp:(BOOL)enableForIOS5AndUp;
 
@@ -72,5 +72,9 @@
  * Checks if the provided URL exists in cache.
  */
 - (BOOL)isCached:(NSURL *)url;
+
+/* Clears the memory cache (but not the disk cache)
+ */
+- (void)clearMemoryCache;
 
 @end

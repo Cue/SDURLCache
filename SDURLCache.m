@@ -597,9 +597,14 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
     [self saveCacheInfo];
 }
 
-- (void)removeAllCachedResponses
+-(void)clearMemoryCache
 {
     [super removeAllCachedResponses];
+}
+
+- (void)removeAllCachedResponses
+{
+    [self clearMemoryCache];
 
     if (disabled) return;
     NSFileManager *fileManager = [[NSFileManager alloc] init];
