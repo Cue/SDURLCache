@@ -18,7 +18,7 @@
 // namespace that will prevent this from happening.
 // Old cache keys will eventually be evicted from the system as new keys are
 // populated.
-static NSString *const kSDURLCacheVersion = @"VCue0";
+NSString *const kSDURLCacheVersion = @"VCue0";
 
 static NSTimeInterval const kSDURLCacheInfoDefaultMinDiskCacheItemInterval = 15 * 60; // 15 minutes
 static NSTimeInterval const kSDURLCacheInfoDefaultMaxMemoryCacheItemInterval = 36 * 60 * 60; // 36 hours
