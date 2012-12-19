@@ -18,7 +18,7 @@
 // namespace that will prevent this from happening.
 // Old cache keys will eventually be evicted from the system as new keys are
 // populated.
-static NSString *const kSDURLCacheVersion = @"V2";
+static NSString *const kSDURLCacheVersion = @"VCue0";
 
 static NSTimeInterval const kSDURLCacheInfoDefaultMinDiskCacheItemInterval = 15 * 60; // 15 minutes
 static NSTimeInterval const kSDURLCacheInfoDefaultMaxMemoryCacheItemInterval = 36 * 60 * 60; // 36 hours
@@ -58,6 +58,44 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
 
 #pragma mark SDURLCache (tools)
 
++ (NSCharacterSet *)plusOrPercent;
+{
+    static NSCharacterSet *retval = nil;
+    if (!retval) {
+        retval = [[NSCharacterSet characterSetWithCharactersInString:@"+%"] retain];
+    }
+    return retval;
+}
+
+// from http://code.google.com/p/google-toolbox-for-mac/source/browse/trunk/Foundation/GTMNSString%2BURLArguments.m
++ (NSString *)urlEncodedString:(NSString *)string;
+{
+    // Encode all the reserved characters, per RFC 3986
+    // (<http://www.ietf.org/rfc/rfc3986.txt>)
+    CFStringRef escaped =
+    CFURLCreateStringByAddingPercentEscapes(kCFAllocatorDefault,
+                                            (CFStringRef)string,
+                                            NULL,
+                                            (CFStringRef)@"!*'();:@&=+$,/?%#[]",
+                                            kCFStringEncodingUTF8);
+    return [(NSString *)escaped autorelease]; // Toll-free bridging
+}
+
+// from http://code.google.com/p/google-toolbox-for-mac/source/browse/trunk/Foundation/GTMNSString%2BURLArguments.m
++ (NSString *)urlDecodedString:(NSString *)string;
+{
+    if ([string rangeOfCharacterFromSet:[self plusOrPercent]].location == NSNotFound) {
+        // Avoid copying if we can.
+        return string;
+    }
+    NSMutableString *resultString = [NSMutableString stringWithString:string];
+    [resultString replaceOccurrencesOfString:@"+"
+                                  withString:@" "
+                                     options:NSLiteralSearch
+                                       range:NSMakeRange(0, [resultString length])];
+    return [resultString stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+}
+
 + (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)request
 {
     NSString *string = request.URL.absoluteString;
@@ -72,11 +110,8 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
 
 + (NSString *)cacheKeyForURL:(NSURL *)url
 {
-    const char *str = [url.absoluteString UTF8String];
-    unsigned char r[CC_MD5_DIGEST_LENGTH];
-    CC_MD5(str, strlen(str), r);
-    return [NSString stringWithFormat:@"%@_%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
-            kSDURLCacheVersion, r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[13], r[14], r[15]];
+    return [NSString stringWithFormat:@"%@_%@",
+            kSDURLCacheVersion, [self urlEncodedString:url.absoluteString]];
 }
 
 /*
