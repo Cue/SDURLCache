@@ -531,18 +531,19 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
                           && cachedResponse.data.length < self.diskCapacity
                           && [expirationDate timeIntervalSinceNow] > minDiskCacheItemInterval);
 
-    bool memoryCacheable = cachedResponse.data.length < self.maxMemoryCacheItemSize;
-
-    if (memoryCacheable && (!diskCacheable || [expirationDate timeIntervalSinceNow] <= maxMemoryCacheItemInterval))
-    {
+    bool memoryCacheable = cachedResponse.data.length < self.maxMemoryCacheItemSize;    
+    if (memoryCacheable && (!diskCacheable || [expirationDate timeIntervalSinceNow] <= maxMemoryCacheItemInterval)) {
         // item is small enough, cache to memory only
         [super storeCachedResponse:cachedResponse forRequest:request];
         return;
     }
 
-
-    if (diskCacheable && ! [self isCachedOnDisk:[request URL]])
+    if (diskCacheable)
     {
+        if ([self isCachedOnDisk:[request URL]]) {
+            NSLog(@"Item already cached on disk: %@", [request URL]);
+        }
+        
         NSInvocationOperation *operation = [[NSInvocationOperation alloc] initWithTarget:self
                                                                             selector:@selector(storeToDisk:)
                                                                               object:[NSDictionary dictionaryWithObjectsAndKeys:
