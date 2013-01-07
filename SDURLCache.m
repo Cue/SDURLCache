@@ -564,7 +564,7 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
     NSCachedURLResponse *memoryResponse = [super cachedResponseForRequest:request];
     if (memoryResponse)
     {
-        return memoryResponse;
+        return [[memoryResponse retain] autorelease];
     }
 
     NSString *cacheKey = [SDURLCache cacheKeyForURL:request.URL];
@@ -598,7 +598,7 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
 
                 if (diskResponse)
                 {
-                    return diskResponse;
+                    return [[diskResponse retain] autorelease];
                 }
             }
         }
