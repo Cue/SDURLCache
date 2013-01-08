@@ -561,10 +561,10 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
 
     request = [SDURLCache canonicalRequestForRequest:request];
 
-    NSCachedURLResponse *memoryResponse = [super cachedResponseForRequest:request];
+    NSCachedURLResponse *memoryResponse = [[[super cachedResponseForRequest:request] retain] autorelease];
     if (memoryResponse)
     {
-        return [[memoryResponse retain] autorelease];
+        return memoryResponse;
     }
 
     NSString *cacheKey = [SDURLCache cacheKeyForURL:request.URL];
@@ -578,7 +578,7 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
         {
             // load wrapper
             SDCachedURLResponse *diskResponseWrapper = [NSKeyedUnarchiver unarchiveObjectWithFile:[diskCachePath stringByAppendingPathComponent:cacheKey]];
-            NSCachedURLResponse *diskResponse = diskResponseWrapper.response;
+            NSCachedURLResponse *diskResponse = [[diskResponseWrapper.response retain] autorelease];
 
             if (diskResponse)
             {
@@ -593,12 +593,12 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
                 // SRK: Work around an interesting retainCount bug in CFNetwork on iOS << 3.2.
                 if (kCFCoreFoundationVersionNumber < kCFCoreFoundationVersionNumber_iPhoneOS_3_2)
                 {
-                    diskResponse = [super cachedResponseForRequest:request];
+                    diskResponse = [[[super cachedResponseForRequest:request] retain] autorelease];
                 }
 
                 if (diskResponse)
                 {
-                    return [[diskResponse retain] autorelease];
+                    return diskResponse;
                 }
             }
         }
