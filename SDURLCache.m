@@ -110,8 +110,19 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
 
 + (NSString *)cacheKeyForURL:(NSURL *)url
 {
-    return [NSString stringWithFormat:@"%@_%@",
-            kSDURLCacheVersion, [self urlEncodedString:url.absoluteString]];
+    const char *str = [url.absoluteString UTF8String];
+    unsigned char r[CC_MD5_DIGEST_LENGTH];
+    CC_MD5(str, strlen(str), r);
+
+    NSString *key = [NSString stringWithFormat:@"%@_%@",
+                              kSDURLCacheVersion, [self urlEncodedString:url.absoluteString]];
+
+    if ([key length] > 150) {
+      key = [NSString stringWithFormat:@"%@", [key substringToIndex:150]];
+    }
+
+    return [NSString stringWithFormat:@"%@_%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+            key, r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[13], r[14], r[15]];
 }
 
 /*
@@ -531,7 +542,7 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
                           && cachedResponse.data.length < self.diskCapacity
                           && [expirationDate timeIntervalSinceNow] > minDiskCacheItemInterval);
 
-    bool memoryCacheable = cachedResponse.data.length < self.maxMemoryCacheItemSize;    
+    bool memoryCacheable = cachedResponse.data.length < self.maxMemoryCacheItemSize;
     if (memoryCacheable && (!diskCacheable || [expirationDate timeIntervalSinceNow] <= maxMemoryCacheItemInterval)) {
         // item is small enough, cache to memory only
         [super storeCachedResponse:cachedResponse forRequest:request];
@@ -543,7 +554,7 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
         if ([self isCachedOnDisk:[request URL]]) {
             NSLog(@"Item already cached on disk: %@", [request URL]);
         }
-        
+
         NSInvocationOperation *operation = [[NSInvocationOperation alloc] initWithTarget:self
                                                                             selector:@selector(storeToDisk:)
                                                                               object:[NSDictionary dictionaryWithObjectsAndKeys:
