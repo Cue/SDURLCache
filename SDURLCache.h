@@ -79,4 +79,9 @@ extern NSString *const kSDURLCacheVersion;
  */
 - (void)clearMemoryCache;
 
+/**
+ * If you need to reverse the hash on a cacheKey, this is how to do it.
+ */
+- (NSString *)urlStringForCacheKey:(NSString *)key;
+
 @end

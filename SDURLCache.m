@@ -27,6 +27,7 @@ static NSString *const kSDURLCacheInfoFileName = @"cacheInfo.plist";
 static NSString *const kSDURLCacheInfoDiskUsageKey = @"diskUsage";
 static NSString *const kSDURLCacheInfoAccessesKey = @"accesses";
 static NSString *const kSDURLCacheInfoSizesKey = @"sizes";
+static NSString *const kSDURLCacheInfoNameMapKey = @"nameMap";
 static float const kSDURLCacheLastModFraction = 0.1f; // 10% since Last-Modified suggested by RFC2616 section 13.2.4
 static float const kSDURLCacheDefault = 3600; // Default cache expiration delay if none defined (1 hour)
 
@@ -58,44 +59,6 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
 
 #pragma mark SDURLCache (tools)
 
-+ (NSCharacterSet *)plusOrPercent;
-{
-    static NSCharacterSet *retval = nil;
-    if (!retval) {
-        retval = [[NSCharacterSet characterSetWithCharactersInString:@"+%"] retain];
-    }
-    return retval;
-}
-
-// from http://code.google.com/p/google-toolbox-for-mac/source/browse/trunk/Foundation/GTMNSString%2BURLArguments.m
-+ (NSString *)urlEncodedString:(NSString *)string;
-{
-    // Encode all the reserved characters, per RFC 3986
-    // (<http://www.ietf.org/rfc/rfc3986.txt>)
-    CFStringRef escaped =
-    CFURLCreateStringByAddingPercentEscapes(kCFAllocatorDefault,
-                                            (CFStringRef)string,
-                                            NULL,
-                                            (CFStringRef)@"!*'();:@&=+$,/?%#[]",
-                                            kCFStringEncodingUTF8);
-    return [(NSString *)escaped autorelease]; // Toll-free bridging
-}
-
-// from http://code.google.com/p/google-toolbox-for-mac/source/browse/trunk/Foundation/GTMNSString%2BURLArguments.m
-+ (NSString *)urlDecodedString:(NSString *)string;
-{
-    if ([string rangeOfCharacterFromSet:[self plusOrPercent]].location == NSNotFound) {
-        // Avoid copying if we can.
-        return string;
-    }
-    NSMutableString *resultString = [NSMutableString stringWithString:string];
-    [resultString replaceOccurrencesOfString:@"+"
-                                  withString:@" "
-                                     options:NSLiteralSearch
-                                       range:NSMakeRange(0, [resultString length])];
-    return [resultString stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
-}
-
 + (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)request
 {
     NSString *string = request.URL.absoluteString;
@@ -110,8 +73,11 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
 
 + (NSString *)cacheKeyForURL:(NSURL *)url
 {
-    return [NSString stringWithFormat:@"%@_%@",
-            kSDURLCacheVersion, [self urlEncodedString:url.absoluteString]];
+    const char *str = [url.absoluteString UTF8String];
+    unsigned char r[CC_MD5_DIGEST_LENGTH];
+    CC_MD5(str, strlen(str), r);
+    return [NSString stringWithFormat:@"%@_%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+            kSDURLCacheVersion, r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[13], r[14], r[15]];
 }
 
 /*
@@ -277,11 +243,12 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
                 diskCacheInfo = [[NSMutableDictionary alloc] initWithContentsOfFile:[diskCachePath stringByAppendingPathComponent:kSDURLCacheInfoFileName]];
                 if (!diskCacheInfo)
                 {
-                    diskCacheInfo = [[NSMutableDictionary alloc] initWithObjectsAndKeys:
-                                     [NSNumber numberWithUnsignedInt:0], kSDURLCacheInfoDiskUsageKey,
-                                     [NSMutableDictionary dictionary], kSDURLCacheInfoAccessesKey,
-                                     [NSMutableDictionary dictionary], kSDURLCacheInfoSizesKey,
-                                     nil];
+                    diskCacheInfo = [[NSMutableDictionary alloc] initWithDictionary: @{
+                                                       kSDURLCacheInfoDiskUsageKey : @0,
+                                                        kSDURLCacheInfoAccessesKey : [NSMutableDictionary dictionary],
+                                                           kSDURLCacheInfoSizesKey : [NSMutableDictionary dictionary],
+                                                         kSDURLCacheInfoNameMapKey : [NSMutableDictionary dictionary],
+                                     }];
                 }
                 diskCacheInfoDirty = NO;
 
@@ -338,11 +305,13 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
     {
         NSMutableDictionary *accesses = [self.diskCacheInfo objectForKey:kSDURLCacheInfoAccessesKey];
         NSMutableDictionary *sizes = [self.diskCacheInfo objectForKey:kSDURLCacheInfoSizesKey];
+        NSMutableDictionary *nameMap = [self.diskCacheInfo objectForKey:kSDURLCacheInfoNameMapKey];
         NSFileManager *fileManager = [[NSFileManager alloc] init];
 
         while ((cacheKey = [enumerator nextObject]))
         {
             NSUInteger cacheItemSize = [[sizes objectForKey:cacheKey] unsignedIntegerValue];
+            [nameMap removeObjectForKey:cacheKey];
             [accesses removeObjectForKey:cacheKey];
             [sizes removeObjectForKey:cacheKey];
             [fileManager removeItemAtPath:[diskCachePath stringByAppendingPathComponent:cacheKey] error:NULL];
@@ -413,12 +382,12 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
     @synchronized(self.diskCacheInfo)
     {
         diskCacheUsage += [cacheItemSize unsignedIntegerValue];
-        [self.diskCacheInfo setObject:[NSNumber numberWithUnsignedInteger:diskCacheUsage] forKey:kSDURLCacheInfoDiskUsageKey];
-
-
+        [self.diskCacheInfo setObject:[NSNumber numberWithUnsignedInteger:diskCacheUsage] forKey:kSDURLCacheInfoDiskUsageKey];        
+        
         // Update cache info for the stored item
         [(NSMutableDictionary *)[self.diskCacheInfo objectForKey:kSDURLCacheInfoAccessesKey] setObject:[NSDate date] forKey:cacheKey];
         [(NSMutableDictionary *)[self.diskCacheInfo objectForKey:kSDURLCacheInfoSizesKey] setObject:cacheItemSize forKey:cacheKey];
+        [(NSMutableDictionary *)[self.diskCacheInfo objectForKey:kSDURLCacheInfoNameMapKey] setObject:request.URL.absoluteString forKey:cacheKey];
     }
 
     [self saveCacheInfo];
@@ -676,6 +645,13 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
     BOOL exists = [manager fileExistsAtPath:cacheFile];
     [manager release];
     return exists;
+}
+
+- (NSString *)urlStringForCacheKey:(NSString *)key;
+{
+    @synchronized (self.diskCacheInfo) {
+        return [[self.diskCacheInfo objectForKey:kSDURLCacheInfoNameMapKey] objectForKey:key];
+    }
 }
 
 #pragma mark NSObject
