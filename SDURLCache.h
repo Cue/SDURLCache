@@ -84,4 +84,11 @@ extern NSString *const kSDURLCacheVersion;
  */
 - (NSString *)urlStringForCacheKey:(NSString *)key;
 
+/**
+* overwriteExisting defaults to NO
+*/
+- (void)storeCachedResponse:(NSCachedURLResponse *)cachedResponse
+                 forRequest:(NSURLRequest *)request
+            overwriteOnDisk:(BOOL)overwrite;
+
 @end

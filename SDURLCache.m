@@ -382,8 +382,8 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
     @synchronized(self.diskCacheInfo)
     {
         diskCacheUsage += [cacheItemSize unsignedIntegerValue];
-        [self.diskCacheInfo setObject:[NSNumber numberWithUnsignedInteger:diskCacheUsage] forKey:kSDURLCacheInfoDiskUsageKey];        
-        
+        [self.diskCacheInfo setObject:[NSNumber numberWithUnsignedInteger:diskCacheUsage] forKey:kSDURLCacheInfoDiskUsageKey];
+
         // Update cache info for the stored item
         [(NSMutableDictionary *)[self.diskCacheInfo objectForKey:kSDURLCacheInfoAccessesKey] setObject:[NSDate date] forKey:cacheKey];
         [(NSMutableDictionary *)[self.diskCacheInfo objectForKey:kSDURLCacheInfoSizesKey] setObject:cacheItemSize forKey:cacheKey];
@@ -469,8 +469,15 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
                                diskPath:path];
 }
 
+- (void)storeCachedResponse:(NSCachedURLResponse *)cachedResponse
+                 forRequest:(NSURLRequest *)request;
+{
+    [self storeCachedResponse:cachedResponse forRequest:request overwriteOnDisk:NO];
+}
 
-- (void)storeCachedResponse:(NSCachedURLResponse *)cachedResponse forRequest:(NSURLRequest *)request
+- (void)storeCachedResponse:(NSCachedURLResponse *)cachedResponse
+                 forRequest:(NSURLRequest *)request
+            overwriteOnDisk:(BOOL)overwrite;
 {
     if (disabled)
     {
@@ -500,19 +507,15 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
                           && cachedResponse.data.length < self.diskCapacity
                           && [expirationDate timeIntervalSinceNow] > minDiskCacheItemInterval);
 
-    bool memoryCacheable = cachedResponse.data.length < self.maxMemoryCacheItemSize;    
+    bool memoryCacheable = cachedResponse.data.length < self.maxMemoryCacheItemSize;
     if (memoryCacheable && (!diskCacheable || [expirationDate timeIntervalSinceNow] <= maxMemoryCacheItemInterval)) {
         // item is small enough, cache to memory only
         [super storeCachedResponse:cachedResponse forRequest:request];
         return;
     }
 
-    if (diskCacheable)
+    if (diskCacheable && (overwrite || ![self isCachedOnDisk:request.URL]))
     {
-        if ([self isCachedOnDisk:[request URL]]) {
-            NSLog(@"Item already cached on disk: %@", [request URL]);
-        }
-        
         NSInvocationOperation *operation = [[NSInvocationOperation alloc] initWithTarget:self
                                                                             selector:@selector(storeToDisk:)
                                                                               object:[NSDictionary dictionaryWithObjectsAndKeys:
